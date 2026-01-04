@@ -1,254 +1,207 @@
-# Beijing Multi-Site Air Quality — Classification + Regression + Time Series (ARIMA)
+📘 Báo cáo Phân tích Dữ liệu & Quy trình Mô hình hóa
+1. Q1: Khám phá & Làm sạch Dữ liệu (Preprocessing & EDA)
+### 🔹 Tổng quan Dữ liệu
 
-Phân tích dữ liệu chất lượng không khí **Beijing Multi-Site Air Quality (12 stations)** để xây dựng một pipeline hoàn chỉnh gồm:
+Phạm vi thời gian: Từ 2013-03-01 đến 2017-02-28.
 
-- **Phân lớp mức độ ô nhiễm (AQI level)**: tạo nhãn từ **PM2.5 rolling 24h**, nhưng **KHÔNG dùng PM2.5** trong tập đặc trưng đầu vào (tránh leakage).
-- **Hồi quy (Regression)**: dự đoán **PM2.5 tương lai** theo horizon (ví dụ t+1, t+24…).
-- **Chuỗi thời gian (Time Series)**: phân tích đặc điểm dữ liệu time series “đúng bài giảng” và dự báo **chỉ dùng ARIMA** (statsmodels).
+Tần suất: Hourly (hàng giờ). Dữ liệu liên tục, đảm bảo tính chất chuỗi thời gian.
 
-Project triển khai theo pipeline notebook → module hoá trong `src/` → tự động chạy bằng **Papermill** để phục vụ giảng dạy & demo ra quyết định chọn mô hình.
+Biến mục tiêu: PM2.5 – nồng độ bụi mịn trong không khí.
 
----
+Tính dừng (Stationarity):
 
-## Features
+Kiểm định ADF (Augmented Dickey-Fuller) cho kết quả p-value < 0.05.
 
-### 1) Classification (No PM2.5 in features)
-- Load & merge dữ liệu từ nhiều trạm
-- Làm sạch dữ liệu: missing, kiểu thời gian, chuẩn hoá numeric/object
-- Tạo nhãn **AQI class** từ `pm25_24h` (rolling mean 24h)
-- **Không dùng PM2.5 / pm25_24h làm feature**
-- Đánh giá: Accuracy, Precision/Recall/F1, Confusion Matrix
-- Lưu artifacts: metrics + prediction sample
+Điều này cho thấy chuỗi PM2.5 có tính dừng về mặt thống kê.
 
-### 2) Regression (Supervised)
-- Tạo bài toán hồi quy theo time-based split (tránh leakage)
-- Feature engineering cho hồi quy:
-  - time features (hour/day/month/…)
-  - lag features (theo cấu hình)
-- Dự đoán `PM2.5(t + horizon)`
-- Đánh giá: RMSE, MAE, R2
-- Lưu artifacts: model + metrics + prediction sample
+Kết luận:
 
-### 3) Time Series Forecasting (ARIMA only)
-- Xây dựng chuỗi đơn biến theo **1 trạm** (univariate PM2.5)
-- Phân tích đặc điểm dữ liệu chuỗi thời gian “đúng bài giảng”:
-  - missingness & resampling
-  - rolling mean/std
-  - stationarity tests (ADF/KPSS)
-  - ACF/PACF để định hướng p,q
-  - quyết định d (sai phân) theo kiểm định + quan sát
-- Fit & chọn ARIMA theo AIC/BIC (grid nhỏ)
-- Dự báo + lưu artifacts: summary, predictions, model
+Về lý thuyết, có thể chọn d = 0 cho ARIMA.
 
----
+Tuy nhiên, do chuỗi vẫn thể hiện mùa vụ và dao động mạnh theo thời gian, việc cân nhắc sai phân (differencing) vẫn cần được xem xét trong thực nghiệm.
 
-## Project Structure
+### 🔹 Phân tích dữ liệu thiếu (Missing Values)
 
-```text
-air_quality_timeseries/
-├── data/
-│   ├── raw/
-│   │   └── PRSA2017_Data_20130301-20170228.zip
-│   └── processed/
-│       ├── cleaned.parquet
-│       ├── dataset_for_clf.parquet
-│       ├── metrics.json
-│       ├── predictions_sample.csv
-│       ├── dataset_for_regression.parquet
-│       ├── regressor.joblib
-│       ├── regression_metrics.json
-│       ├── regression_predictions_sample.csv
-│       ├── arima_pm25_summary.json
-│       ├── arima_pm25_predictions.csv
-│       └── arima_pm25_model.pkl
-│
-├── notebooks/
-│   ├── preprocessing_and_eda.ipynb
-│   ├── feature_preparation.ipynb
-│   ├── classification_modelling.ipynb
-│   ├── regression_modelling.ipynb
-│   ├── arima_forecasting.ipynb
-│   └── runs/
-│       ├── preprocessing_and_eda_run.ipynb
-│       ├── feature_preparation_run.ipynb
-│       ├── classification_modelling_run.ipynb
-│       ├── regression_modelling_run.ipynb
-│       └── arima_forecasting_run.ipynb
-│
-├── src/
-│   ├── classification_library.py
-│   ├── regression_library.py
-│   ├── timeseries_library.py
-│   └── __init__.py
-│
-├── run_papermill.py
-├── requirements.txt
-└── README.md
+Dữ liệu bị thiếu ở nhiều nhóm biến:
 
-```
+Nhóm khí tượng (TEMP, PRES, DEWP) thiếu rất ít (≈ 0.1%).
 
-## Installation
+Nhóm ô nhiễm (PM2.5, CO, NO2) thiếu nhiều hơn (≈ 2–5%).
 
-```bash
-git clone <your_repo_url>
-cd air_quality_timeseries
-pip install -r requirements.txt
-```
+Biểu đồ heatmap missing values cho thấy:
 
-## Data Preparation
+Dữ liệu thiếu thường xuất hiện theo từng đoạn thời gian liên tục (chunks).
 
-Đặt file gốc vào:
-```
+Gợi ý nguyên nhân có thể do bảo trì trạm quan trắc hoặc lỗi cảm biến tạm thời.
 
-```bash
-data/raw/PRSA2017_Data_20130301-20170228.zip
-```
-Hoặc tải dataset Beijing Multi-Site Air Quality Data (UCI) và đặt các file trạm vào:
+### ⭐ Insight quan trọng: Tại sao thiếu PM2.5 là đáng lo nhất?
 
-```bash 
-data/raw/
-```
-Ví dụ
+PM2.5 là biến mục tiêu của bài toán.
 
-```bash
-data/raw/station_01.csv
-data/raw/station_02.csv
-...
-data/raw/station_12.csv
-```
+Các mô hình chuỗi thời gian (như ARIMA) hoạt động dựa trên cơ chế tự hồi quy (Auto-Regressive):
 
-File output sẽ được sinh tự động vào:
-```bash
-data/processed/
-```
+Giá trị hiện tại 
+𝑦
+𝑡
+y
+t
+	​
 
+ phụ thuộc vào các giá trị quá khứ 
+𝑦
+𝑡
+−
+1
+,
+𝑦
+𝑡
+−
+2
+,
+…
+y
+t−1
+	​
 
+,y
+t−2
+	​
 
-Run Pipeline (Recommended)
-Chạy toàn bộ phân tích chỉ với 1 lệnh:
+,…
 
-```bash
-python run_papermill.py
-```
-Kết quả sinh ra:
+Nếu PM2.5 bị thiếu:
 
-```bash
-data/processed/cleaned.parquet
-data/processed/dataset_for_clf.parquet
-data/processed/metrics.json
-data/processed/predictions_sample.csv
+Chuỗi thời gian bị đứt đoạn
 
-data/processed/dataset_for_regression.parquet
-data/processed/regressor.joblib
-data/processed/regression_metrics.json
-data/processed/regression_predictions_sample.csv
+Mô hình mất thông tin lịch sử cần thiết
 
-data/processed/arima_pm25_summary.json
-data/processed/arima_pm25_predictions.csv
-data/processed/arima_pm25_model.pkl
+Khả năng dự báo liên tục bị suy giảm
 
-notebooks/runs/arima_forecasting_run.ipynb
-```
+➡️ Vì vậy, thiếu biến mục tiêu (PM2.5) nguy hiểm hơn thiếu biến đầu vào như TEMP hay WSPM.
 
-### Changing Parameters
-Các tham số có thể chỉnh trong run_papermill.py:
+2. Q2: Đánh giá Baseline Hồi quy (Regression Model)
 
-#### Preprocessing/EDA
-```python
-USE_UCIMLREPO = False
-RAW_ZIP_PATH = "data/raw/PRSA2017_Data_20130301-20170228.zip"
-LAG_HOURS = [1, 3, 24]
-```
+Mô hình baseline sử dụng hồi quy (Linear / Random Forest).
 
-#### Classification
-```python
-CUTOFF = "2017-01-01"   # time-based split
-# (PM2.5 bị loại khỏi features trong library để tránh leakage)
-```
+Đặc trưng được xây dựng thông qua Feature Engineering từ chuỗi thời gian:
 
-#### Regression
-```python
-HORIZON = 1                       # dự đoán PM2.5(t + HORIZON)
-TARGET_COL = "PM2.5"
-OUTPUT_REG_DATASET_PATH = "data/processed/dataset_for_regression.parquet"
-CUTOFF = "2017-01-01"
-MODEL_OUT = "regressor.joblib"
-METRICS_OUT = "regression_metrics.json"
-PRED_SAMPLE_OUT = "regression_predictions_sample.csv"
-```
+Lag features
 
-#### ARIMA 
-```
-STATION = "Aotizhongxin"
-VALUE_COL = "PM2.5"
-CUTOFF = "2017-01-01"
+Time-based features (giờ, ngày)
 
-P_MAX = 3
-Q_MAX = 3
-D_MAX = 2
-IC = "aic"                         # hoặc "bic"
-ARTIFACTS_PREFIX = "arima_pm25"
-```
+### 🔹 Giải thích kỹ thuật
+1. Tại sao Lag 24h lại quan trọng?
 
+PM2.5 chịu ảnh hưởng mạnh bởi:
 
-Hoặc sửa trong cell PARAMETERS của mỗi notebook để chạy với cấu hình khác nhau.
+Nhịp sinh hoạt con người
 
-### Visualization & Results
+Chu kỳ tự nhiên ngày – đêm
 
-Notebook preprocessing_and_eda.ipynb:
+Ví dụ:
 
-  kiểm tra missingness, phân phối, xu hướng theo thời gian
+Nồng độ PM2.5 lúc 8h sáng hôm nay thường tương đồng với 8h sáng hôm qua.
 
-  gợi ý seasonality (24h, tuần) để định hướng mô hình
+Biến lag_24 giúp mô hình nắm bắt được tính mùa vụ theo ngày (Daily Seasonality).
 
-Notebook regression_modelling.ipynb:
+➡️ Đây là một trong những lag quan trọng nhất trong bài toán.
 
-  dự đoán PM2.5(t+h), đánh giá RMSE/MAE/R2, minh hoạ leakage và lý do time-split
+2. Tại sao phải chia Train/Test theo Cutoff thời gian?
 
-Notebook arima_forecasting.ipynb:
+Dữ liệu chuỗi thời gian có thứ tự tự nhiên nghiêm ngặt.
 
-  ADF/KPSS, rolling mean/std, ACF/PACF
+Nếu dùng random_split:
 
-  chọn (p,d,q) theo AIC/BIC và dự báo ARIMA
+Mô hình có thể dùng dữ liệu tương lai để dự đoán quá khứ.
 
-Bạn có thể export notebook chạy ra HTML:
+Gây ra Data Leakage (rò rỉ dữ liệu).
 
-```bash
-jupyter nbconvert notebooks/runs/03_classification_modelling_run.ipynb --to html
-```
+Giải pháp đúng:
 
-## Ứng dụng thực tế 
+Cắt dữ liệu theo mốc thời gian (ví dụ: 2017-01-01)
 
-Thiết kế bài giảng “end-to-end”:
+Dữ liệu quá khứ → huấn luyện
 
-  phân lớp mức độ ô nhiễm (classification) + chống leakage
+Dữ liệu tương lai → kiểm thử
 
-  hồi quy dự đoán chỉ số PM2.5 tương lai (regression)
+3. Phân biệt RMSE và MAE
 
-  phân tích chuỗi thời gian và quyết định dùng ARIMA (time series)
+MAE (Mean Absolute Error):
 
-Demo ra quyết định mô hình dựa trên:
+Sai số tuyệt đối trung bình
 
-  stationarity (ADF/KPSS), ACF/PACF
+Phản ánh mức sai lệch thông thường hàng ngày
 
-  tiêu chí IC (AIC/BIC) và kiểm tra sai số dự báo
+RMSE (Root Mean Squared Error):
 
-### Tech Stack
+Sai số bình phương trung bình
 
-| Công nghệ | Mục đích |
-|----------|----------|
-| Python | Ngôn ngữ chính |
-| Pandas | Xử lý dữ liệu transaction |
-| Scikit-learn | Modelling & metrics |
-| Statsmodels  | ARIMA               |
-| Papermill | Chạy pipeline notebook tự động |
-| Matplotlib & Seaborn | Visualization biểu đồ tĩnh |
-| Plotly | Dashboard / biểu đồ tương tác |
-| Jupyter Notebook | Môi trường notebook |
+Phạt rất nặng các sai số lớn
 
-### Author
-Project được thực hiện bởi:
-Trang Le
+Ý nghĩa thực tế:
 
-### License
-MIT — sử dụng tự do cho nghiên cứu, học thuật và ứng dụng nội bộ.
+Nếu RMSE > MAE, điều đó cho thấy mô hình dự báo kém tại các thời điểm có đỉnh ô nhiễm (spikes/outliers).
+
+Nếu mục tiêu là cảnh báo các đợt ô nhiễm nguy hiểm, cần đặc biệt quan tâm đến RMSE.
+
+3. Q3: Quy trình quyết định tham số ARIMA (p, d, q)
+### 🔹 Bước 1: Xác định bậc sai phân (d)
+
+Kiểm định ADF test cho thấy chuỗi có tính dừng (p-value < 0.05).
+
+Do đó:
+
+Về lý thuyết, có thể chọn d = 0.
+
+Tuy nhiên, do chuỗi vẫn thể hiện xu hướng và mùa vụ, việc thử nghiệm d = 1 vẫn được cân nhắc để cải thiện mô hình.
+
+### 🔹 Bước 2: Ước lượng p và q bằng ACF / PACF
+
+PACF (Partial Autocorrelation Function):
+
+Gợi ý bậc tự hồi quy p
+
+ACF (Autocorrelation Function):
+
+Gợi ý bậc trung bình trượt q
+
+Việc quan sát điểm cắt và tốc độ suy giảm của các đồ thị này giúp lựa chọn tập giá trị (p, q) ban đầu.
+
+### 🔹 Bước 3: Lựa chọn mô hình tối ưu
+
+Thử nghiệm các tổ hợp (p, d, q) trong phạm vi nhỏ.
+
+Sử dụng AIC (Akaike Information Criterion) để so sánh.
+
+➡️ Mô hình có AIC thấp thể hiện sự cân bằng giữa:
+
+Độ phù hợp dữ liệu
+
+Độ phức tạp mô hình
+→ Tránh overfitting.
+
+### 🔹 Bước 4: Kiểm tra phần dư (Residual Diagnostics)
+
+Residual được kỳ vọng:
+
+Dao động quanh 0
+
+Không còn xu hướng hay chu kỳ rõ rệt
+
+Trong thực nghiệm:
+
+Residual chưa hoàn toàn là white noise
+
+Gợi ý rằng mô hình vẫn còn hạn chế
+
+➡️ Đây là cơ sở để đề xuất các hướng mở rộng trong tương lai.
+
+Kết luận
+
+PM2.5 là chuỗi thời gian có tính dừng về mặt thống kê nhưng vẫn thể hiện mùa vụ và biến động mạnh.
+
+Regression với lag features cung cấp baseline hợp lý.
+
+ARIMA khai thác tốt cấu trúc tự tương quan cho dự báo ngắn hạn.
+
+Việc hiểu đúng dữ liệu và giữ nguyên thứ tự thời gian đóng vai trò quan trọng hơn việc sử dụng mô hình phức tạp.
