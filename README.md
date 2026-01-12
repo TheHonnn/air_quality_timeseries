@@ -1,207 +1,93 @@
-📘 Báo cáo Phân tích Dữ liệu & Quy trình Mô hình hóa
-1. Q1: Khám phá & Làm sạch Dữ liệu (Preprocessing & EDA)
-### 🔹 Tổng quan Dữ liệu
+# Dự đoán PM2.5 theo giờ tại Bắc Kinh: Regression vs ARIMA cho Cảnh báo Ngắn hạn
 
-Phạm vi thời gian: Từ 2013-03-01 đến 2017-02-28.
+![Beijing Air Quality](https://your-image-url-here.com/cover.jpg)
 
-Tần suất: Hourly (hàng giờ). Dữ liệu liên tục, đảm bảo tính chất chuỗi thời gian.
+## Mục lục
+1. [Giới thiệu bài toán](#1-giới-thiệu-bài-toán)
+2. [Thiết lập pipeline và cấu hình tham số](#2-thiết-lập-pipeline-và-cấu-hình-tham-số)
+3. [Trực quan hóa và diễn giải dữ liệu](#3-trực-quan-hóa-và-diễn-giải-dữ-liệu)
+4. [So sánh Regression và ARIMA](#4-so-sánh-regression-và-arima)
+5. [Insight và khuyến nghị](#5-insight-và-khuyến-nghị)
+6. [Trả lời Q1–Q3](#6-trả-lời-q1q3)
+7. [Kết luận](#7-kết-luận)
 
-Biến mục tiêu: PM2.5 – nồng độ bụi mịn trong không khí.
+---
 
-Tính dừng (Stationarity):
+## 1. Giới thiệu bài toán
+PM2.5 là chỉ số ô nhiễm không khí ảnh hưởng trực tiếp đến sức khỏe cộng đồng, đặc biệt tại các đô thị lớn như Bắc Kinh. Mục tiêu của dự án này là dự báo PM2.5 theo giờ (**horizon = 1**) bằng hai cách tiếp cận:
+* **Regression baseline:** Sử dụng đặc trưng thời gian và độ trễ (lag features).
+* **ARIMA:** Mô hình chuỗi thời gian đơn biến truyền thống.
 
-Kiểm định ADF (Augmented Dickey-Fuller) cho kết quả p-value < 0.05.
+---
 
-Điều này cho thấy chuỗi PM2.5 có tính dừng về mặt thống kê.
+## 2. Thiết lập pipeline và cấu hình tham số
+Pipeline được thiết kế theo luồng chặt chẽ: `EDA` $\rightarrow$ `Regression` $\rightarrow$ `ARIMA`.
 
-Kết luận:
+**Cấu hình tham số chính:**
+* **STATION:** Aotizhongxin
+* **CUTOFF:** 2017-01-01 (Chia dữ liệu Train/Test)
+* **HORIZON:** 1 (Dự báo trước 1 giờ)
+* **LAG_HOURS:** [1, 3, 24]
 
-Về lý thuyết, có thể chọn d = 0 cho ARIMA.
+> **Lưu ý quan trọng:** Việc chia train/test theo thời gian (Time-series split) giúp tránh hiện tượng **leakage** – mô hình “nhìn trộm tương lai”.
 
-Tuy nhiên, do chuỗi vẫn thể hiện mùa vụ và dao động mạnh theo thời gian, việc cân nhắc sai phân (differencing) vẫn cần được xem xét trong thực nghiệm.
+---
 
-### 🔹 Phân tích dữ liệu thiếu (Missing Values)
+## 3. Trực quan hóa và diễn giải dữ liệu
 
-Dữ liệu bị thiếu ở nhiều nhóm biến:
+### 3.1. Toàn cảnh biến động PM2.5
+![Hình 1: PM2.5 toàn giai đoạn 2013–2017](./images/anh1.png)
+* Dữ liệu dao động mạnh với nhiều đỉnh cao bất thường (**spike**).
+* Dữ liệu có đuôi phải dài, không phân phối chuẩn. Các spike này là rủi ro sức khỏe cực lớn cần dự báo chính xác.
 
-Nhóm khí tượng (TEMP, PRES, DEWP) thiếu rất ít (≈ 0.1%).
+### 3.2. Chu kỳ và đặc điểm ngắn hạn
+![Hình 2: PM2.5 phóng to 1–2 tháng](./images/anh4.png)
+* PM2.5 có dao động theo ngày rõ rệt. Mức ô nhiễm thường cao hơn vào ban đêm và sáng sớm.
+* **Lag 24h** là đặc trưng sống còn để mô hình không bị lệch chu kỳ sinh hoạt đô thị.
 
-Nhóm ô nhiễm (PM2.5, CO, NO2) thiếu nhiều hơn (≈ 2–5%).
+### 3.3. Phân tích tự tương quan
+![Hình 3: ACF / PACF của PM2.5](./images/anh2.png)
+* **ACF:** Tự tương quan mạnh ở lag 1, 2 và lặp lại quanh lag 24.
+* **PACF:** Giảm dần sau vài lag đầu, gợi ý giá trị $p$ nhỏ trong mô hình ARIMA.
 
-Biểu đồ heatmap missing values cho thấy:
+### 3.4. Kết quả dự báo ARIMA
+![Hình 4: Forecast vs Actual (ARIMA)](./images/anh9.png)
+* ARIMA bám sát xu hướng nhưng có xu hướng "làm mượt" (smooth) các đỉnh. Điều này khiến sai số RMSE tăng cao tại các điểm spike.
 
-Dữ liệu thiếu thường xuất hiện theo từng đoạn thời gian liên tục (chunks).
+---
 
-Gợi ý nguyên nhân có thể do bảo trì trạm quan trắc hoặc lỗi cảm biến tạm thời.
+## 4. So sánh Regression và ARIMA
 
-### ⭐ Insight quan trọng: Tại sao thiếu PM2.5 là đáng lo nhất?
+| Tiêu chí | Regression Baseline | ARIMA |
+| :--- | :--- | :--- |
+| **Hiệu suất (H=1)** | Thường tốt hơn (MAE/RMSE thấp hơn) | Trung bình |
+| **Phản ứng với Spike** | Nhanh, nhạy bén nhờ lag gần | Chậm, có xu hướng dự báo thấp hơn thực tế |
+| **Khả năng mở rộng** | Dễ thêm biến thời tiết, giao thông | Khó (cần chuyển sang SARIMAX) |
+| **Độ phức tạp** | Thấp, chạy nhanh | Cao, cần kiểm định tính dừng |
 
-PM2.5 là biến mục tiêu của bài toán.
+---
 
-Các mô hình chuỗi thời gian (như ARIMA) hoạt động dựa trên cơ chế tự hồi quy (Auto-Regressive):
+## 5. Insight và khuyến nghị
+1.  **Cập nhật theo giờ:** Do PM2.5 có spike ngắn hạn, hệ thống cần dự báo real-time.
+2.  **Chính sách:** Tập trung hạn chế giao thông vào các khung giờ cao điểm đã được nhận diện qua chu kỳ 24h.
+3.  **Đánh giá:** Ưu tiên chỉ số **RMSE** khi đánh giá vì nó phản ánh tốt hơn rủi ro tại các đỉnh ô nhiễm cực đoan.
 
-Giá trị hiện tại 
-𝑦
-𝑡
-y
-t
-	​
+---
 
- phụ thuộc vào các giá trị quá khứ 
-𝑦
-𝑡
-−
-1
-,
-𝑦
-𝑡
-−
-2
-,
-…
-y
-t−1
-	​
+## 6. Trả lời Q1 – Q3
 
-,y
-t−2
-	​
+* **Q1 (Hiểu dữ liệu):** Tự tương quan mạnh + Chu kỳ ngày + Nhiều spike. Thiếu dữ liệu tại biến mục tiêu PM2.5 là vấn đề nghiêm trọng nhất cần xử lý.
+* **Q2 (Regression):** Lag 24h phản ánh chu kỳ sinh hoạt. Sử dụng Cutoff là bắt buộc để đảm bảo tính khách quan của mô hình chuỗi thời gian.
+* **Q3 (ARIMA):** Quy trình chuẩn: Quan sát $\rightarrow$ Kiểm định dừng $\rightarrow$ ACF/PACF $\rightarrow$ Chọn $p,d,q$ qua AIC/BIC $\rightarrow$ Chẩn đoán phần dư.
 
-,…
+---
 
-Nếu PM2.5 bị thiếu:
+## 7. Kết luận
+Không có mô hình “tốt nhất cho mọi trường hợp”. Tuy nhiên, với bài toán **cảnh báo sớm ngắn hạn (1 giờ)**, **Regression Baseline** tỏ ra hiệu quả, thực tế và dễ triển khai hơn. ARIMA sẽ phát huy giá trị tốt hơn trong việc phân tích xu hướng dài hạn.
 
-Chuỗi thời gian bị đứt đoạn
-
-Mô hình mất thông tin lịch sử cần thiết
-
-Khả năng dự báo liên tục bị suy giảm
-
-➡️ Vì vậy, thiếu biến mục tiêu (PM2.5) nguy hiểm hơn thiếu biến đầu vào như TEMP hay WSPM.
-
-2. Q2: Đánh giá Baseline Hồi quy (Regression Model)
-
-Mô hình baseline sử dụng hồi quy (Linear / Random Forest).
-
-Đặc trưng được xây dựng thông qua Feature Engineering từ chuỗi thời gian:
-
-Lag features
-
-Time-based features (giờ, ngày)
-
-### 🔹 Giải thích kỹ thuật
-1. Tại sao Lag 24h lại quan trọng?
-
-PM2.5 chịu ảnh hưởng mạnh bởi:
-
-Nhịp sinh hoạt con người
-
-Chu kỳ tự nhiên ngày – đêm
-
-Ví dụ:
-
-Nồng độ PM2.5 lúc 8h sáng hôm nay thường tương đồng với 8h sáng hôm qua.
-
-Biến lag_24 giúp mô hình nắm bắt được tính mùa vụ theo ngày (Daily Seasonality).
-
-➡️ Đây là một trong những lag quan trọng nhất trong bài toán.
-
-2. Tại sao phải chia Train/Test theo Cutoff thời gian?
-
-Dữ liệu chuỗi thời gian có thứ tự tự nhiên nghiêm ngặt.
-
-Nếu dùng random_split:
-
-Mô hình có thể dùng dữ liệu tương lai để dự đoán quá khứ.
-
-Gây ra Data Leakage (rò rỉ dữ liệu).
-
-Giải pháp đúng:
-
-Cắt dữ liệu theo mốc thời gian (ví dụ: 2017-01-01)
-
-Dữ liệu quá khứ → huấn luyện
-
-Dữ liệu tương lai → kiểm thử
-
-3. Phân biệt RMSE và MAE
-
-MAE (Mean Absolute Error):
-
-Sai số tuyệt đối trung bình
-
-Phản ánh mức sai lệch thông thường hàng ngày
-
-RMSE (Root Mean Squared Error):
-
-Sai số bình phương trung bình
-
-Phạt rất nặng các sai số lớn
-
-Ý nghĩa thực tế:
-
-Nếu RMSE > MAE, điều đó cho thấy mô hình dự báo kém tại các thời điểm có đỉnh ô nhiễm (spikes/outliers).
-
-Nếu mục tiêu là cảnh báo các đợt ô nhiễm nguy hiểm, cần đặc biệt quan tâm đến RMSE.
-
-3. Q3: Quy trình quyết định tham số ARIMA (p, d, q)
-### 🔹 Bước 1: Xác định bậc sai phân (d)
-
-Kiểm định ADF test cho thấy chuỗi có tính dừng (p-value < 0.05).
-
-Do đó:
-
-Về lý thuyết, có thể chọn d = 0.
-
-Tuy nhiên, do chuỗi vẫn thể hiện xu hướng và mùa vụ, việc thử nghiệm d = 1 vẫn được cân nhắc để cải thiện mô hình.
-
-### 🔹 Bước 2: Ước lượng p và q bằng ACF / PACF
-
-PACF (Partial Autocorrelation Function):
-
-Gợi ý bậc tự hồi quy p
-
-ACF (Autocorrelation Function):
-
-Gợi ý bậc trung bình trượt q
-
-Việc quan sát điểm cắt và tốc độ suy giảm của các đồ thị này giúp lựa chọn tập giá trị (p, q) ban đầu.
-
-### 🔹 Bước 3: Lựa chọn mô hình tối ưu
-
-Thử nghiệm các tổ hợp (p, d, q) trong phạm vi nhỏ.
-
-Sử dụng AIC (Akaike Information Criterion) để so sánh.
-
-➡️ Mô hình có AIC thấp thể hiện sự cân bằng giữa:
-
-Độ phù hợp dữ liệu
-
-Độ phức tạp mô hình
-→ Tránh overfitting.
-
-### 🔹 Bước 4: Kiểm tra phần dư (Residual Diagnostics)
-
-Residual được kỳ vọng:
-
-Dao động quanh 0
-
-Không còn xu hướng hay chu kỳ rõ rệt
-
-Trong thực nghiệm:
-
-Residual chưa hoàn toàn là white noise
-
-Gợi ý rằng mô hình vẫn còn hạn chế
-
-➡️ Đây là cơ sở để đề xuất các hướng mở rộng trong tương lai.
-
-Kết luận
-
-PM2.5 là chuỗi thời gian có tính dừng về mặt thống kê nhưng vẫn thể hiện mùa vụ và biến động mạnh.
-
-Regression với lag features cung cấp baseline hợp lý.
-
-ARIMA khai thác tốt cấu trúc tự tương quan cho dự báo ngắn hạn.
-
-Việc hiểu đúng dữ liệu và giữ nguyên thứ tự thời gian đóng vai trò quan trọng hơn việc sử dụng mô hình phức tạp.
+---
+*Dữ liệu phân tích từ trạm Aotizhongxin, Bắc Kinh.*
+**Tác giả:**
+Bùi Thế Hoàng
+Nguyễn Sỹ Quang Huy
+Nguyễn Thế Hạnh
